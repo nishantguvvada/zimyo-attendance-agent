@@ -229,6 +229,14 @@ class ZimyoClient:
             else:
                 print(f"Clock-in failed: {data.message}")
                 return False
+        except httpx.HTTPStatusError as e:
+            # Try to parse error response for 422
+            try:
+                error_data = e.response.json()
+                print(f"Clock-in failed ({e.response.status_code}): {error_data.get('message', 'Unknown error')}")
+            except Exception:
+                print(f"Clock-in HTTP error: {e}")
+            return False
         except Exception as e:
             print(f"Clock-in request failed: {e}")
             return False
@@ -265,6 +273,14 @@ class ZimyoClient:
             else:
                 print(f"Clock-out failed: {data.message}")
                 return False
+        except httpx.HTTPStatusError as e:
+            # Try to parse error response for 422
+            try:
+                error_data = e.response.json()
+                print(f"Clock-out failed ({e.response.status_code}): {error_data.get('message', 'Unknown error')}")
+            except Exception:
+                print(f"Clock-out HTTP error: {e}")
+            return False
         except Exception as e:
             print(f"Clock-out request failed: {e}")
             return False
