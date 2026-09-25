@@ -34,7 +34,7 @@ def check_status(state: AgentState) -> AgentState:
     """Check current attendance status from Zimyo."""
     client = create_zimyo_client()
     try:
-        attendance = client.get_attendance()
+        attendance = client.get_attendance_status()
         client.close()
         
         if attendance:
