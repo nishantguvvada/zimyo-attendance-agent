@@ -1,0 +1,86 @@
+name: Zimyo Attendance Logger
+
+on:
+  schedule:
+    # Clock-in attempts: at 8:55, 9:00, 9:05 AM UAE (Mon-Fri)
+    - cron: '55 4 * * 1-5'   # 8:55 AM UAE = 4:55 UTC
+    - cron: '0 5 * * 1-5'    # 9:00 AM UAE = 5:00 UTC
+    - cron: '5 5 * * 1-5'    # 9:05 AM UAE = 5:05 UTC
+    # Clock-out attempts: at 4:55, 5:00, 5:05, 5:10 PM UAE (Mon-Fri)
+    - cron: '55 12 * * 1-5'  # 4:55 PM UAE = 12:55 UTC
+    - cron: '0 13 * * 1-5'   # 5:00 PM UAE = 13:00 UTC
+    - cron: '5 13 * * 1-5'   # 5:05 PM UAE = 13:05 UTC
+    - cron: '10 13 * * 1-5'  # 5:10 PM UAE = 13:10 UTC
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Manual action to perform'
+        required: true
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - clock_in
+          - clock_out
+          - status
+
+jobs:
+  attendance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: 'latest'
+      
+      - name: Install dependencies
+        run: |
+          cd zimyo_attendance
+          uv sync --frozen
+      
+      - name: Run attendance agent
+        env:
+          ZIMYO_USERNAME: ${{ secrets.ZIMYO_USERNAME }}
+          ZIMYO_PASSWORD: ${{ secrets.ZIMYO_PASSWORD }}
+          ZIMYO_BASE_URL: ${{ secrets.ZIMYO_BASE_URL }}
+          ZIMYO_EMPLOYEE_ID: ${{ secrets.ZIMYO_EMPLOYEE_ID }}
+          CLOCK_IN_WINDOW_START: ${{ secrets.CLOCK_IN_WINDOW_START }}
+          CLOCK_IN_WINDOW_END: ${{ secrets.CLOCK_IN_WINDOW_END }}
+          CLOCK_OUT_WINDOW_START: ${{ secrets.CLOCK_OUT_WINDOW_START }}
+          CLOCK_OUT_WINDOW_END: ${{ secrets.CLOCK_OUT_WINDOW_END }}
+          TIMEZONE: ${{ secrets.TIMEZONE }}
+          GITHUB_ACTIONS: 'true'
+        run: |
+          cd zimyo_attendance
+          uv run python -m zimyo_attendance ${{ github.event.inputs.action || 'auto' }}
+      
+      - name: Upload attendance log artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: attendance-log-${{ github.run_id }}
+          path: zimyo_attendance/data/attendance.json
+          retention-days: 90
+      
+      - name: Commit attendance log (optional)
+        if: github.event_name == 'schedule'
+        run: |
+          cd zimyo_attendance
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/attendance.json
+          git diff --staged --quiet || git commit -m "chore: update attendance log [skip ci]"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
