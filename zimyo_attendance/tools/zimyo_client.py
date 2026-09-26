@@ -145,8 +145,6 @@ class ZimyoClient:
             "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
         }
 
-    def clock_in(self) -> bool:
-
     def get_attendance_status(self) -> Optional[AttendanceData]:
         """Fetch current attendance status using check-clock-in-out-status."""
         if not self._authenticated:
@@ -207,13 +205,13 @@ class ZimyoClient:
         except Exception as e:
             print(f"Attendance fetch error: {e}")
             return None
+    def clock_in(self) -> bool:
         """Record clock-in attendance."""
         if not self._authenticated:
             if not self.login():
                 return False
 
         url = f"{self.settings.zimyo_base_url}/apiv2/auth/hrms/clock-in-out"
-        # Use the payload format that works: EMP_ID, SOURCE, DATE, PLACE
         from datetime import datetime
         date_str = datetime.now().strftime("%Y-%m-%d")
         payload = {
@@ -228,7 +226,6 @@ class ZimyoClient:
                 url,
                 json=payload,
                 headers=self._auth_headers(),
-                # Cookies are handled by the client's cookie jar
             )
             response.raise_for_status()
             data = ZimyoAttendanceResponse(**response.json())
@@ -239,10 +236,9 @@ class ZimyoClient:
                 print(f"Clock-in failed: {data.message}")
                 return False
         except httpx.HTTPStatusError as e:
-            # Try to parse error response for 422
             try:
-                error_data = e.response.json()
-                print(f"Clock-in failed ({e.response.status_code}): {error_data.get('message', 'Unknown error')}")
+                ed = e.response.json()
+                print(f"Clock-in failed ({e.response.status_code}): {ed.get("message", "Unknown error")}")
             except Exception:
                 print(f"Clock-in HTTP error: {e}")
             return False
