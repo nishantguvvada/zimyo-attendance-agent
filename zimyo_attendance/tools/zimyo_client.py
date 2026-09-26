@@ -69,7 +69,7 @@ class ZimyoClient:
 
         headers = {
             "accept": "application/json, text/plain, */*",
-            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-encoding": "gzip, deflate",
             "accept-language": "en-US,en;q=0.9",
             "app_lang": "en",
             "app_name": "Account",
@@ -128,7 +128,7 @@ class ZimyoClient:
             return {}
         return {
             "accept": "application/json",
-            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-encoding": "gzip, deflate",
             "accept-language": "en-GB,en-US;q=0.9,en;q=0.8",
             "access-control-allow-origin": "https://www.zimyo.work",
             "content-type": "application/json",
@@ -145,57 +145,64 @@ class ZimyoClient:
             "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
         }
 
-    def get_attendance_status(self) -> Optional[AttendanceData]:
-        """Fetch current attendance status using check-clock-in-out-status."""
         if not self._authenticated:
             if not self.login():
                 return None
 
-        url = f"{self.settings.zimyo_base_url}/apiv2/auth/hrms/check-clock-in-out-status"
-        payload = {
-            "employee_id": self._employee_id,
-            "source": "WEB",
-        }
+url = f"{self.settings.zimyo_base_url}/apiv2/auth/hrms/check-clock-in-out-status"
+# Use the working payload format: EMP_ID, SOURCE, DATE, PLACE
+from datetime import datetime
+date_str = datetime.now().strftime("%Y-%m-%d")
+payload = {
+    "EMP_ID": self._employee_id,
+    "SOURCE": "Web",
+    "DATE": date_str,
+    "PLACE": "",
+}
 
-        try:
-            response = self.client.post(
-                url,
-                json=payload,
-                headers=self._auth_headers(),
-                cookies=self._session_cookies,
-            )
-            response.raise_for_status()
+try:
+    response = self.client.post(
+        url,
+        json=payload,
+        headers=self._auth_headers(),
+        # Cookies are handled by the client's cookie jar
+    )
+    response.raise_for_status()
+    data = ZimyoAttendanceResponse(**response.json())
+    if not data.error and data.code == 200:
+        att = data.data.get("attendance", {})
+        shift_json = att.get("SHIFT_JSON", {})
+        return AttendanceData(
+            date=att.get("DATE", ""),
+            date_format=att.get("DATE_FORMAT", ""),
+            total_punch_time=att.get("TOTAL_PUNCH_TIME", ""),
+            current_time=att.get("CURRENT_TIME", ""),
+            in_out_status=att.get("IN_OUT_STATUS", ""),
+            shift_end=att.get("SHIFT_END", ""),
+            timezone=att.get("TIMEZONE", "Asia/Dubai"),
+            web_punchin=att.get("WEB_PUNCHIN", "Yes"),
+            enable_selfie_attendance=att.get("ENABLE_SELFIE_ATTENDANCE", 1),
+            shift_name=shift_json.get("SHIFT_NAME", ""),
+            shift_code=shift_json.get("SHIFT_CODE", ""),
+            day_start_time=shift_json.get("DAY_START_TIME", "09:00 AM"),
+            day_end_time=shift_json.get("DAY_END_TIME", "06:00 PM"),
+            shift_json=shift_json,
+        )
+    else:
+        print(f"Failed to get attendance: {data.message}")
+return None
 
-            data = ZimyoAttendanceResponse(**response.json())
-            if not data.error and data.code == 200:
-                att = data.data.get("attendance", {})
-                shift_json = att.get("SHIFT_JSON", {})
-                return AttendanceData(
-                    date=att.get("DATE", ""),
-                    date_format=att.get("DATE_FORMAT", ""),
-                    total_punch_time=att.get("TOTAL_PUNCH_TIME", ""),
-                    current_time=att.get("CURRENT_TIME", ""),
-                    in_out_status=att.get("IN_OUT_STATUS", ""),
-                    shift_end=att.get("SHIFT_END", ""),
-                    timezone=att.get("TIMEZONE", "Asia/Dubai"),
-                    web_punchin=att.get("WEB_PUNCHIN", "Yes"),
-                    enable_selfie_attendance=att.get("ENABLE_SELFIE_ATTENDANCE", 1),
-                    shift_name=shift_json.get("SHIFT_NAME", ""),
-                    shift_code=shift_json.get("SHIFT_CODE", ""),
-                    day_start_time=shift_json.get("DAY_START_TIME", "09:00 AM"),
-                    day_end_time=shift_json.get("DAY_END_TIME", "06:00 PM"),
-                    shift_json=shift_json,
-                )
-            else:
-                print(f"Failed to get attendance: {data.message}")
-                return None
-
-        except httpx.HTTPError as e:
-            print(f"Attendance fetch HTTP error: {e}")
-            return None
-        except Exception as e:
-            print(f"Attendance fetch error: {e}")
-            return None
+                except httpx.HTTPStatusError as e:
+                    # Try to parse error response for 422
+                    try:
+                        error_data = e.response.json()
+                        print(f"Attendance fetch failed ({e.response.status_code}): {error_data.get('message', 'Unknown error')}")
+                    except Exception:
+                        print(f"Attendance fetch HTTP error: {e}")
+                    return None
+                except Exception as e:
+                    print(f"Attendance fetch error: {e}")
+                    return None
 
     def clock_in(self) -> bool:
         """Record clock-in attendance."""
