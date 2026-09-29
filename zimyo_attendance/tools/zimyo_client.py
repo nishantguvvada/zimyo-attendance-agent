@@ -29,6 +29,8 @@ class AttendanceData(BaseModel):
     date: str
     date_format: str
     total_punch_time: str
+    punch_in_time: Optional[str] = None
+    punch_out_time: Optional[str] = None
     current_time: str
     in_out_status: str
     shift_end: str
@@ -178,6 +180,8 @@ class ZimyoClient:
                     date=att.get("DATE", ""),
                     date_format=att.get("DATE_FORMAT", ""),
                     total_punch_time=att.get("TOTAL_PUNCH_TIME", ""),
+                    punch_in_time=att.get("PUNCH_IN_TIME"),
+                    punch_out_time=att.get("PUNCH_OUT_TIME"),
                     current_time=att.get("CURRENT_TIME", ""),
                     in_out_status=att.get("IN_OUT_STATUS", ""),
                     shift_end=att.get("SHIFT_END", ""),
