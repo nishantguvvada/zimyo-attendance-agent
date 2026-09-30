@@ -4,13 +4,13 @@ on:
   schedule:
     # Clock-in attempts: at 8:55, 9:00, 9:05 AM UAE (Mon-Fri)
     - cron: '55 4 * * 1-5'   # 8:55 AM UAE = 4:55 UTC
-    - cron: '0 5 * * 1-5'    # 9:00 AM UAE = 5:00 UTC
-    - cron: '5 5 * * 1-5'    # 9:05 AM UAE = 5:05 UTC
+    # - cron: '0 5 * * 1-5'    # 9:00 AM UAE = 5:00 UTC
+    # - cron: '5 5 * * 1-5'    # 9:05 AM UAE = 5:05 UTC
     # Clock-out attempts: at 4:55, 5:00, 5:05, 5:10 PM UAE (Mon-Fri)
     - cron: '55 12 * * 1-5'  # 4:55 PM UAE = 12:55 UTC
-    - cron: '0 13 * * 1-5'   # 5:00 PM UAE = 13:00 UTC
-    - cron: '5 13 * * 1-5'   # 5:05 PM UAE = 13:05 UTC
-    - cron: '10 13 * * 1-5'  # 5:10 PM UAE = 13:10 UTC
+    # - cron: '0 13 * * 1-5'   # 5:00 PM UAE = 13:00 UTC
+    # - cron: '5 13 * * 1-5'   # 5:05 PM UAE = 13:05 UTC
+    # - cron: '10 13 * * 1-5'  # 5:10 PM UAE = 13:10 UTC
   workflow_dispatch:
     inputs:
       action:
@@ -27,6 +27,8 @@ on:
 jobs:
   attendance:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     timeout-minutes: 10
     
     steps:
