@@ -35,41 +35,35 @@ def check_status(state: AgentState) -> AgentState:
     client = create_zimyo_client()
     try:
         attendance = client.get_attendance_status()
-        client.close()
         
         if attendance:
             state.attendance_data = attendance
-            state.current_status = attendance.in_out_status
-            
-            # Determine if already clocked in/out
-            if attendance.punch_in_time and not attendance.punch_out_time:
-                state.current_status = "CLOCKED_IN"
-            elif attendance.punch_in_time and attendance.punch_out_time:
-                state.current_status = "CLOCKED_OUT"
-            else:
-                state.current_status = "NOT_CLOCKED_IN"
+            state.current_status = "CLOCKED_IN" if attendance.is_clocked_in else "CLOCKED_OUT"
         else:
             state.error = "Failed to fetch attendance data"
             state.current_status = "ERROR"
     except Exception as e:
         state.error = f"Status check error: {e}"
         state.current_status = "ERROR"
+    finally:
+        client.close()
     
     return state
 
 
 def decide_action(state: AgentState) -> AgentState:
     """Decide what action to take based on time and current status."""
-    if state.action != "auto":
-        # Manual action requested
-        return state
-    
     if state.error:
         state.action = "status"
         return state
     
     if not state.attendance_data:
+        state.error = "Unable to determine attendance status; no punch sent"
         state.action = "status"
+        return state
+
+    if state.action != "auto":
+        # Client guards also recheck status immediately before manual punches.
         return state
     
     # Parse UAE time
@@ -94,7 +88,7 @@ def decide_action(state: AgentState) -> AgentState:
         return state
     
     # Decision logic
-    if state.current_status == "NOT_CLOCKED_IN":
+    if state.current_status == "CLOCKED_OUT":
         if clock_in_start <= current_time_minutes <= clock_in_end:
             state.action = "clock_in"
         elif current_time_minutes < clock_in_start:
@@ -102,7 +96,8 @@ def decide_action(state: AgentState) -> AgentState:
             state.success = True
             state.action = "status"
         else:
-            state.result = f"Clock-in window passed ({settings.clock_in_window_end}), manual action needed"
+            state.result = "Already clocked out; outside the clock-in window"
+            state.success = True
             state.action = "status"
     
     elif state.current_status == "CLOCKED_IN":
@@ -115,11 +110,6 @@ def decide_action(state: AgentState) -> AgentState:
         else:
             state.action = "clock_out"  # Past clock-out window, clock out anyway
     
-    elif state.current_status == "CLOCKED_OUT":
-        state.result = "Already clocked out for today"
-        state.success = True
-        state.action = "status"
-    
     else:
         state.action = "status"
     
@@ -127,46 +117,28 @@ def decide_action(state: AgentState) -> AgentState:
 
 
 def execute_clock_in(state: AgentState) -> AgentState:
-    """Execute clock in operation."""
-    client = create_zimyo_client()
-    try:
-        success = client.clock_in()
-        client.close()
-        
-        if success:
-            state.result = f"Successfully clocked in at {state.uae_time}"
-            state.success = True
-        else:
-            state.result = "Clock-in failed"
-            state.error = "Zimyo clock-in API returned error"
-            state.success = False
-    except Exception as e:
-        state.result = "Clock-in failed with exception"
-        state.error = str(e)
-        state.success = False
-    
-    return state
+    """Execute guarded clock in."""
+    return _execute_punch(state, "clock_in")
 
 
 def execute_clock_out(state: AgentState) -> AgentState:
-    """Execute clock out operation."""
+    """Execute guarded clock out."""
+    return _execute_punch(state, "clock_out")
+
+
+def _execute_punch(state: AgentState, action: str) -> AgentState:
     client = create_zimyo_client()
     try:
-        success = client.clock_out()
-        client.close()
-        
-        if success:
-            state.result = f"Successfully clocked out at {state.uae_time}"
-            state.success = True
-        else:
-            state.result = "Clock-out failed"
-            state.error = "Zimyo clock-out API returned error"
-            state.success = False
+        state.success = client.clock_in() if action == "clock_in" else client.clock_out()
+        state.result = client.last_action_message
+        state.error = None if state.success else state.result
+        state.attendance_data = client.last_attendance
     except Exception as e:
-        state.result = "Clock-out failed with exception"
+        state.result = "Attendance action could not be completed"
         state.error = str(e)
         state.success = False
-    
+    finally:
+        client.close()
     return state
 
 

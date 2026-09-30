@@ -43,6 +43,16 @@ class AttendanceData(BaseModel):
     day_end_time: str
     shift_json: Dict[str, Any]
 
+    @property
+    def is_clocked_in(self) -> bool:
+        """IN_OUT_STATUS is the current state; timestamps may both be populated."""
+        status = self.in_out_status.strip().lower()
+        if status == "in":
+            return True
+        if status == "out":
+            return False
+        raise ValueError(f"Unknown attendance status: {self.in_out_status!r}")
+
 
 class ZimyoClient:
     """Client for interacting with Zimyo API."""
@@ -58,6 +68,8 @@ class ZimyoClient:
         self._authenticated = False
         self._token: Optional[str] = None
         self._employee_id: Optional[int] = None
+        self.last_action_message: str = ""
+        self.last_attendance: Optional[AttendanceData] = None
 
     def login(self) -> bool:
         """Authenticate with Zimyo portal."""
@@ -210,54 +222,34 @@ class ZimyoClient:
             print(f"Attendance fetch error: {e}")
             return None
     def clock_in(self) -> bool:
-        """Record clock-in attendance."""
-        if not self._authenticated:
-            if not self.login():
-                return False
-
-        url = f"{self.settings.zimyo_base_url}/apiv2/auth/hrms/clock-in-out"
-        from datetime import datetime
-        date_str = datetime.now().strftime("%Y-%m-%d")
-        payload = {
-            "EMP_ID": self._employee_id,
-            "SOURCE": "Web",
-            "DATE": date_str,
-            "PLACE": "",
-        }
-
-        try:
-            response = self.client.post(
-                url,
-                json=payload,
-                headers=self._auth_headers(),
-            )
-            response.raise_for_status()
-            data = ZimyoAttendanceResponse(**response.json())
-            if not data.error and data.code == 200:
-                print(f"Clock-in successful: {data.message}")
-                return True
-            else:
-                print(f"Clock-in failed: {data.message}")
-                return False
-        except httpx.HTTPStatusError as e:
-            try:
-                ed = e.response.json()
-                print(f"Clock-in failed ({e.response.status_code}): {ed.get("message", "Unknown error")}")
-            except Exception:
-                print(f"Clock-in HTTP error: {e}")
-            return False
-        except Exception as e:
-            print(f"Clock-in request failed: {e}")
-            return False
+        """Ensure the employee is clocked in without repeating a punch."""
+        return self._set_clock_state(clocked_in=True)
 
     def clock_out(self) -> bool:
-        """Record clock-out attendance."""
-        if not self._authenticated:
-            if not self.login():
-                return False
+        """Ensure the employee is clocked out without repeating a punch."""
+        return self._set_clock_state(clocked_in=False)
+
+    def _action_result(self, success: bool, message: str) -> bool:
+        self.last_action_message = message
+        print(message)
+        return success
+
+    def _set_clock_state(self, *, clocked_in: bool) -> bool:
+        """Guard the toggle endpoint and verify its result; never retry a punch."""
+        label = "Clock-in" if clocked_in else "Clock-out"
+        state_label = "in" if clocked_in else "out"
+        self.last_action_message = ""
+        self.last_attendance = self.get_attendance_status()
+        if self.last_attendance is None:
+            return self._action_result(False, f"{label} skipped: unable to fetch attendance status")
+        try:
+            already_in = self.last_attendance.is_clocked_in
+        except ValueError as e:
+            return self._action_result(False, f"{label} skipped: {e}")
+        if already_in == clocked_in:
+            return self._action_result(True, f"Already clocked {state_label}; no punch sent")
 
         url = f"{self.settings.zimyo_base_url}/apiv2/auth/hrms/clock-in-out"
-        # Use the payload format that works: EMP_ID, SOURCE, DATE, PLACE
         from datetime import datetime
         date_str = datetime.now().strftime("%Y-%m-%d")
         payload = {
@@ -266,33 +258,34 @@ class ZimyoClient:
             "DATE": date_str,
             "PLACE": "",
         }
-
         try:
-            response = self.client.post(
-                url,
-                json=payload,
-                headers=self._auth_headers(),
-                # Cookies are handled by the client's cookie jar
-            )
+            response = self.client.post(url, json=payload, headers=self._auth_headers())
             response.raise_for_status()
             data = ZimyoAttendanceResponse(**response.json())
-            if not data.error and data.code == 200:
-                print(f"Clock-out successful: {data.message}")
-                return True
-            else:
-                print(f"Clock-out failed: {data.message}")
-                return False
-        except httpx.HTTPStatusError as e:
-            # Try to parse error response for 422
-            try:
-                error_data = e.response.json()
-                print(f"Clock-out failed ({e.response.status_code}): {error_data.get('message', 'Unknown error')}")
-            except Exception:
-                print(f"Clock-out HTTP error: {e}")
-            return False
         except Exception as e:
-            print(f"Clock-out request failed: {e}")
-            return False
+            # A timeout or malformed response does not prove the punch failed.
+            self.last_attendance = None
+            return self._action_result(
+                False, f"{label} outcome unconfirmed: {e}. No retry sent; check attendance status",
+            )
+        if data.error or data.code != 200:
+            return self._action_result(False, f"{label} failed: {data.message}")
+
+        self.last_attendance = self.get_attendance_status()
+        try:
+            confirmed = (
+                self.last_attendance is not None
+                and self.last_attendance.is_clocked_in == clocked_in
+            )
+        except ValueError:
+            confirmed = False
+        if not confirmed:
+            return self._action_result(
+                False,
+                f"{label} request accepted, but final attendance state is unconfirmed. "
+                "No retry sent; check attendance status",
+            )
+        return self._action_result(True, f"Successfully clocked {state_label}; status verified")
 
     def close(self) -> None:
         """Close the HTTP client."""

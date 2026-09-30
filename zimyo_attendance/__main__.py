@@ -125,6 +125,8 @@ def main():
         
         result = run_attendance_agent(args.action)
         print_result(result)
+        if not result["success"]:
+            sys.exit(1)
 
 
 if __name__ == "__main__":
