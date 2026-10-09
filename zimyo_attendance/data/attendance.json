@@ -167,9 +167,23 @@
       "shift_name": "IT Shift (Dubai)",
       "id": 12,
       "timestamp": "2026-10-09T11:33:16.448572"
+    },
+    {
+      "date": "2026-10-09",
+      "action": "status",
+      "uae_time": "2026-10-09 22:32:55",
+      "status_before": "CLOCKED_OUT",
+      "result": "Already clocked out; outside the clock-in window",
+      "success": true,
+      "error": null,
+      "punch_in_time": "2026-10-09 08:47:00",
+      "punch_out_time": "2026-10-09 15:33:00",
+      "shift_name": "IT Shift (Dubai)",
+      "id": 13,
+      "timestamp": "2026-10-09T18:32:57.812837"
     }
   ],
-  "last_updated": "2026-10-09T11:33:16.448608",
+  "last_updated": "2026-10-09T18:32:57.812843",
   "metadata": {
     "created_at": "2026-09-30T18:09:59.709025",
     "version": "1.0"
